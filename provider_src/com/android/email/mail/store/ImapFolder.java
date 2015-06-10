@@ -177,6 +177,7 @@ public class ImapFolder extends Folder {
             // * OK [UIDNEXT 57576] Predicted next UID
             // 2 OK [READ-WRITE] Select completed.
             try {
+                mConnection.setTransportTag(mName + "-" + hashCode());
                 doSelect();
             } catch (IOException ioe) {
                 throw ioExceptionHandler(mConnection, ioe);
@@ -222,6 +223,7 @@ public class ImapFolder extends Folder {
     }
 
     public void startIdling(final IdleCallback callback) throws MessagingException {
+        LogUtils.d(LOG_TAG, "startIdling on folder " + mName);
         checkOpen();
         synchronized (mIdleSync) {
             if (mIdling) {
@@ -249,6 +251,7 @@ public class ImapFolder extends Folder {
                     // the server to listen for new changes)
                     synchronized (mIdleSync) {
                         if (mIdlingCancelled) {
+                            mIdling = false;
                             return;
                         }
                     }
@@ -340,6 +343,7 @@ public class ImapFolder extends Folder {
     }
 
     public void stopIdling(boolean discardConnection) throws MessagingException {
+        LogUtils.d(LOG_TAG, "stopIdling on folder " + mName);
         if (!isOpen()) {
             throw new MessagingException("Folder " + mName + " is not open.");
         }
@@ -1608,8 +1612,8 @@ public class ImapFolder extends Folder {
 
             } catch (Exception ex) {
                 if (Logging.LOGD) {
-                    LogUtils.e(LOG_TAG, "Failure processing imap change (" + change
-                            + ") for mailbox " + mName, ex);
+                    LogUtils.e(LOG_TAG, ex, "Failure processing imap change (" + change
+                            + ") for mailbox " + mName);
                 }
             }
         }
