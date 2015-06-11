@@ -109,7 +109,7 @@ public class ImapService extends Service {
     private static final Flag[] FLAG_LIST_ANSWERED = new Flag[] { Flag.ANSWERED };
 
     // Kick idle connection every 25 minutes
-    private static final int KICK_IDLE_CONNETION_TIMEOUT = 25 * 60 * 1000;
+    private static final int KICK_IDLE_CONNECTION_TIMEOUT = 25 * 60 * 1000;
     private static final int ALARM_REQUEST_KICK_IDLE_CODE = 1000;
 
     /**
@@ -265,6 +265,10 @@ public class ImapService extends Service {
 
                         ImapIdleFolderHolder holder = ImapIdleFolderHolder.getInstance();
                         holder.registerMailboxForIdle(mContext, account, mMailbox);
+
+                        // Request a quick sync to make sure we didn't lose any new mails
+                        // during the failure time
+                        ImapService.requestSync(mContext, account, mMailbox.mId, false);
                     } catch (MessagingException ex) {
                         LogUtils.w(LOG_TAG, ex, "Failed to register mailbox for idle. Reschedule.");
                         reschedulePing(increasePingDelay());
@@ -289,7 +293,7 @@ public class ImapService extends Service {
 
         private void scheduleKickIdleConnection() {
             PendingIntent pi = getKickIdleConnectionPendingIntent();
-            long due = System.currentTimeMillis() + KICK_IDLE_CONNETION_TIMEOUT;
+            long due = System.currentTimeMillis() + KICK_IDLE_CONNECTION_TIMEOUT;
             AlarmManager am = (AlarmManager) mContext.getSystemService(Context.ALARM_SERVICE);
             am.set(AlarmManager.RTC, due, pi);
         }
@@ -650,7 +654,7 @@ public class ImapService extends Service {
                     }
                 }
             } catch (MessagingException me) {
-                LogUtils.e(LOG_TAG, "Failed to process imap account " + id + " changes.", me);
+                LogUtils.e(LOG_TAG, me, "Failed to process imap account " + id + " changes.");
             }
 
             // Check if service should be started/stopped
@@ -663,7 +667,7 @@ public class ImapService extends Service {
                 try {
                     ImapIdleFolderHolder.getInstance().unregisterIdledMailboxLocked(id, true);
                 } catch (MessagingException me) {
-                    LogUtils.e(LOG_TAG, "Failed to process imap mailbox " + id + " changes.", me);
+                    LogUtils.e(LOG_TAG, me, "Failed to process imap mailbox " + id + " changes.");
                 }
                 return;
             }
@@ -702,7 +706,7 @@ public class ImapService extends Service {
                     }
                 }
             } catch (MessagingException me) {
-                LogUtils.e(LOG_TAG, "Failed to process imap mailbox " + id + " changes.", me);
+                LogUtils.e(LOG_TAG, me, "Failed to process imap mailbox " + id + " changes.");
             }
         }
 
@@ -730,7 +734,7 @@ public class ImapService extends Service {
                 Store remoteStore = Store.getInstance(account, mContext);
                 processPendingActionsSynchronous(mContext, account, remoteStore, false);
             } catch (MessagingException me) {
-                LogUtils.e(LOG_TAG, "Failed to process imap message " + id + " changes.", me);
+                LogUtils.e(LOG_TAG, me, "Failed to process imap message " + id + " changes.");
             }
         }
     }
@@ -904,24 +908,12 @@ public class ImapService extends Service {
                         return;
                     }
 
-                    Store remoteStore = null;
                     try {
-                        // Since we were idling, just perform a full sync of the mailbox to ensure
-                        // we have all the items before kick the connection
-                        remoteStore = Store.getInstance(account, context);
-                        synchronizeMailboxGeneric(context, account, remoteStore,
-                                mailbox, false, true);
-
-                        // Kick mailbox
                         ImapIdleFolderHolder holder = ImapIdleFolderHolder.getInstance();
                         holder.kickIdledMailbox(context, mailbox, account);
                     } catch (Exception e) {
-                       LogUtils.e(Logging.LOG_TAG,"Failed to kick idled connection "
-                               + "for mailbox " + mailboxId, e);
-                    } finally {
-                        if (remoteStore != null) {
-                            remoteStore.closeConnections();
-                        }
+                       LogUtils.e(Logging.LOG_TAG, e, "Failed to kick idled connection "
+                               + "for mailbox " + mailboxId);
                     }
                 }
             });
@@ -2776,9 +2768,9 @@ public class ImapService extends Service {
         // the changes just perform a full sync
         final long timeSinceLastFullSync = SystemClock.elapsedRealtime() -
                 mailbox.mLastFullSyncTime;
-        final boolean fullSync = timeSinceLastFullSync >= FULL_SYNC_INTERVAL_MILLIS
+        final boolean forceSync = timeSinceLastFullSync >= FULL_SYNC_INTERVAL_MILLIS
                 || timeSinceLastFullSync < 0;
-        if (fullSync) {
+        if (forceSync) {
             needSync = true;
             fetchMessages.clear();
 
@@ -2794,31 +2786,33 @@ public class ImapService extends Service {
                     + ": need sync " + needSync + ", " + msgToFetchSize + " fetch messages");
         }
 
-        boolean syncRequested = false;
-        try {
-            // Sync fetch messages only if we are not going to perform a full sync
-            if (msgToFetchSize > 0 && msgToFetchSize < MAX_MESSAGES_TO_FETCH && !needSync) {
-                processImapFetchChanges(context, account, mailbox, fetchMessages);
+        if (msgToFetchSize > 0) {
+            if (!needSync && msgToFetchSize <= MAX_MESSAGES_TO_FETCH) {
+                try {
+                    processImapFetchChanges(context, account, mailbox, fetchMessages);
+                } catch (MessagingException ex) {
+                    LogUtils.w(LOG_TAG,
+                            "Failed to process imap idle changes for mailbox " + mailbox.mId);
+                    needSync = true;
+                }
+            } else {
+                needSync = true;
             }
-            if (needSync || msgToFetchSize > MAX_MESSAGES_TO_FETCH) {
-                // With idle we fetched as much as possible. If as resync is required, then
-                // if should be a full sync
-                requestSync(context, account, mailbox.mId, true);
-                syncRequested = true;
-            }
-        } catch (MessagingException ex) {
-            LogUtils.w(LOG_TAG, "Failed to process imap idle changes for mailbox " + mailbox.mId);
         }
 
-        // In case no sync happens, re-add idle status
-        try {
-            if (!syncRequested && account.getSyncInterval() == Account.CHECK_INTERVAL_PUSH) {
-                final ImapIdleFolderHolder holder = ImapIdleFolderHolder.getInstance();
-                holder.registerMailboxForIdle(context, account, mailbox);
+        if (needSync) {
+            requestSync(context, account, mailbox.mId, true);
+        } else {
+            // In case no sync happens, re-add idle status
+            try {
+                if (account.getSyncInterval() == Account.CHECK_INTERVAL_PUSH) {
+                    final ImapIdleFolderHolder holder = ImapIdleFolderHolder.getInstance();
+                    holder.registerMailboxForIdle(context, account, mailbox);
+                }
+            } catch (MessagingException ex) {
+                LogUtils.w(LOG_TAG, "Failed to readd imap idle after no sync " +
+                        "for mailbox " + mailbox.mId);
             }
-        } catch (MessagingException ex) {
-            LogUtils.w(LOG_TAG, "Failed to readd imap idle after no sync " +
-                    "for mailbox " + mailbox.mId);
         }
     }
 }
