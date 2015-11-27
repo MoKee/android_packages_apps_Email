@@ -922,7 +922,7 @@ public final class DBHelper {
         @SuppressWarnings("deprecation")
         public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
 
-            boolean fromCM11 = false;
+            boolean fromMK44 = false;
 
             // For versions prior to 5, delete all data
             // Versions >= 5 require that data be preserved!
@@ -1510,10 +1510,10 @@ public final class DBHelper {
             }
 
             if (oldVersion == 126) {
-                fromCM11 = true;
+                fromMK44 = true;
             }
 
-            if (oldVersion <= 124 || fromCM11) {
+            if (oldVersion <= 124 || fromMK44) {
                 createCredentialsTable(db);
                 // Add the credentialKey column, and set it to -1 for all pre-existing hostAuths.
                 db.execSQL("alter table " + HostAuth.TABLE_NAME
@@ -1522,14 +1522,14 @@ public final class DBHelper {
                         + HostAuthColumns.CREDENTIAL_KEY + "=-1");
             }
 
-            if (oldVersion <= 125 || fromCM11) {
+            if (oldVersion <= 125 || fromMK44) {
                 upgradeFromVersion125ToVersion126(db);
             }
 
-            if (oldVersion <= 126 || fromCM11) {
+            if (oldVersion <= 126 || fromMK44) {
                 upgradeFromVersion126ToVersion127(mContext, db);
             }
-            if (oldVersion <= 127 && !fromCM11) {
+            if (oldVersion <= 127 && !fromMK44) {
                 try {
                     db.execSQL("alter table " + Account.TABLE_NAME
                             + " add column " + AccountColumns.AUTO_FETCH_ATTACHMENTS
