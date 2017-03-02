@@ -78,6 +78,7 @@
     <application
         android:name=".EmailApplication"
         android:icon="@mipmap/ic_launcher_mail"
+        android:roundIcon="@mipmap/ic_launcher_mail_round"
         android:label="@string/app_name"
         android:requiredAccountType="com.android.exchange,com.android.email.imap,com.android.email.pop3,com.android.email.legacy.imap"
         android:theme="@style/UnifiedEmailTheme.Appcompat"
