@@ -186,11 +186,11 @@ public class EmailProvider extends ContentProvider
         "vnd.android.cursor.item/email-attachment";
 
     /** Appended to the notification URI for delete operations */
-    private static final String NOTIFICATION_OP_DELETE = "delete";
+    public static final String NOTIFICATION_OP_DELETE = "delete";
     /** Appended to the notification URI for insert operations */
-    private static final String NOTIFICATION_OP_INSERT = "insert";
+    public static final String NOTIFICATION_OP_INSERT = "insert";
     /** Appended to the notification URI for update operations */
-    private static final String NOTIFICATION_OP_UPDATE = "update";
+    public static final String NOTIFICATION_OP_UPDATE = "update";
 
     /** The query string to trigger a folder refresh. */
     protected static String QUERY_UIREFRESH = "uirefresh";
@@ -801,6 +801,7 @@ public class EmailProvider extends ContentProvider
 
         // Notify all notifier cursors
         sendNotifierChange(getBaseNotificationUri(match), NOTIFICATION_OP_DELETE, id);
+        sendSyncSettingChanged(getBaseSyncSettingChangedUri(match), NOTIFICATION_OP_DELETE, id);
 
         // Notify all email content cursors
         notifyUI(EmailContent.CONTENT_URI, null);
@@ -1025,6 +1026,7 @@ public class EmailProvider extends ContentProvider
 
         // Notify all notifier cursors
         sendNotifierChange(getBaseNotificationUri(match), NOTIFICATION_OP_INSERT, id);
+        sendSyncSettingChanged(getBaseSyncSettingChangedUri(match), NOTIFICATION_OP_INSERT, id);
 
         // Notify all existing cursors.
         notifyUI(EmailContent.CONTENT_URI, null);
@@ -1738,6 +1740,8 @@ public class EmailProvider extends ContentProvider
                 extras.putBoolean(ContentResolver.SYNC_EXTRAS_DO_NOT_RETRY, true);
                 extras.putBoolean(ContentResolver.SYNC_EXTRAS_EXPEDITED, true);
                 ContentResolver.requestSync(amAccount, EmailContent.AUTHORITY, extras);
+                LogUtils.i(TAG, "requestSync EmailProvider restoreAccounts %s, %s",
+                        account.toString(), extras.toString());
                 restoredCount++;
             }
         }
@@ -1844,7 +1848,7 @@ public class EmailProvider extends ContentProvider
     private static final int INDEX_SYNC_KEY = 2;
 
     /**
-     * Restart push if we need it (currently only for Exchange accounts).
+     * Restart push if we need it.
      * @param context A {@link Context}.
      * @param db The {@link SQLiteDatabase}.
      * @param id The id of the thing we're looking for.
@@ -1857,9 +1861,13 @@ public class EmailProvider extends ContentProvider
             try {
                 if (c.moveToFirst()) {
                     final String protocol = c.getString(INDEX_PROTOCOL);
-                    // Only restart push for EAS accounts that have completed initial sync.
-                    if (context.getString(R.string.protocol_eas).equals(protocol) &&
-                            !EmailContent.isInitialSyncKey(c.getString(INDEX_SYNC_KEY))) {
+                    final String syncKey = c.getString(INDEX_SYNC_KEY);
+                    final boolean supportsPush =
+                            context.getString(R.string.protocol_eas).equals(protocol) ||
+                            context.getString(R.string.protocol_legacy_imap).equals(protocol);
+
+                    // Only restart push for EAS or IMAP accounts that have completed initial sync.
+                    if (supportsPush && !EmailContent.isInitialSyncKey(syncKey)) {
                         final String emailAddress = c.getString(INDEX_EMAIL_ADDRESS);
                         final android.accounts.Account account =
                                 getAccountManagerAccount(context, emailAddress, protocol);
@@ -1930,6 +1938,7 @@ public class EmailProvider extends ContentProvider
         final SQLiteDatabase db = getDatabase(context);
         final int table = match >> BASE_SHIFT;
         int result;
+        boolean syncSettingChanged = false;
 
         // We do NOT allow setting of unreadCount/messageCount via the provider
         // These columns are maintained via triggers
@@ -2079,6 +2088,14 @@ public class EmailProvider extends ContentProvider
                         }
                     } else if (match == MESSAGE_ID) {
                         db.execSQL(UPDATED_MESSAGE_DELETE + id);
+                    } else if (match == MAILBOX_ID) {
+                        if (values.containsKey(MailboxColumns.SYNC_INTERVAL)) {
+                            syncSettingChanged = true;
+                        }
+                    } else if (match == ACCOUNT_ID) {
+                        if (values.containsKey(AccountColumns.SYNC_INTERVAL)) {
+                            syncSettingChanged = true;
+                        }
                     }
                     result = db.update(tableName, values, whereWithId(id, selection),
                             selectionArgs);
@@ -2146,7 +2163,22 @@ public class EmailProvider extends ContentProvider
                     updateValues.remove(BodyColumns.HTML_CONTENT);
                     updateValues.remove(BodyColumns.TEXT_CONTENT);
 
-                    result = db.update(tableName, updateValues, selection, selectionArgs);
+                    // Since we removed the html and text values from the update operation,
+                    // db.update() can fail because updateValues is empty. Just to a safe check
+                    // before continue, and in case check if we found at least the selection
+                    // record in db and fill the result variable for later hack check.
+                    if (updateValues.size() == 0) {
+                        final String proj[] = {BaseColumns._ID};
+                        final Cursor c = db.query(Body.TABLE_NAME, proj, selection, selectionArgs,
+                                null, null, null);
+                        try {
+                            result = c.getCount();
+                        } finally {
+                            c.close();
+                        }
+                    } else {
+                        result = db.update(tableName, updateValues, selection, selectionArgs);
+                    }
 
                     if (result == 0 && selection.equals(Body.SELECTION_BY_MESSAGE_KEY)) {
                         // TODO: This is a hack. Notably, the selection equality test above
@@ -2213,6 +2245,10 @@ public class EmailProvider extends ContentProvider
                                 TextUtils.isEmpty(values.getAsString(AttachmentColumns.LOCATION))) {
                             LogUtils.w(TAG, new Throwable(), "attachment with blank location");
                         }
+                    } else if (match == MAILBOX) {
+                        if (values.containsKey(MailboxColumns.SYNC_INTERVAL)) {
+                            syncSettingChanged = true;
+                        }
                     }
                     result = db.update(tableName, values, selection, selectionArgs);
                     break;
@@ -2234,6 +2270,10 @@ public class EmailProvider extends ContentProvider
         // Notify all notifier cursors if some records where changed in the database
         if (result > 0) {
             sendNotifierChange(getBaseNotificationUri(match), NOTIFICATION_OP_UPDATE, id);
+            if (syncSettingChanged) {
+                sendSyncSettingChanged(getBaseSyncSettingChangedUri(match),
+                        NOTIFICATION_OP_UPDATE, id);
+            }
             notifyUI(notificationUri, null);
         }
         return result;
@@ -2464,6 +2504,21 @@ public class EmailProvider extends ContentProvider
         return baseUri;
     }
 
+    private static Uri getBaseSyncSettingChangedUri(int match) {
+        Uri baseUri = null;
+        switch (match) {
+            case ACCOUNT:
+            case ACCOUNT_ID:
+                baseUri = Account.SYNC_SETTING_CHANGED_URI;
+                break;
+            case MAILBOX:
+            case MAILBOX_ID:
+                baseUri = Mailbox.SYNC_SETTING_CHANGED_URI;
+                break;
+        }
+        return baseUri;
+    }
+
     /**
      * Sends a change notification to any cursors observers of the given base URI. The final
      * notification URI is dynamically built to contain the specified information. It will be
@@ -2499,6 +2554,25 @@ public class EmailProvider extends ContentProvider
         // We want to send the message list changed notification if baseUri is Message.NOTIFIER_URI.
         if (baseUri.equals(Message.NOTIFIER_URI)) {
             sendMessageListDataChangedNotification();
+        }
+    }
+
+    private void sendSyncSettingChanged(Uri baseUri, String op, String id) {
+        if (baseUri == null) return;
+
+        // Append the operation, if specified
+        if (op != null) {
+            baseUri = baseUri.buildUpon().appendEncodedPath(op).build();
+        }
+
+        long longId = 0L;
+        try {
+            longId = Long.valueOf(id);
+        } catch (NumberFormatException ignore) {}
+        if (longId > 0) {
+            notifyUI(baseUri, id);
+        } else {
+            notifyUI(baseUri, null);
         }
     }
 
@@ -2790,6 +2864,7 @@ public class EmailProvider extends ContentProvider
             + " WHEN " + Mailbox.TYPE_SENT    + " THEN " + R.drawable.ic_drawer_sent_24dp
             + " WHEN " + Mailbox.TYPE_TRASH   + " THEN " + R.drawable.ic_drawer_trash_24dp
             + " WHEN " + Mailbox.TYPE_STARRED + " THEN " + R.drawable.ic_drawer_starred_24dp
+            + " WHEN " + Mailbox.TYPE_JUNK    + " THEN " + R.drawable.ic_drawer_junk_24dp
             + " ELSE " + R.drawable.ic_drawer_folder_24dp + " END";
 
     /**
@@ -3879,7 +3954,8 @@ public class EmailProvider extends ContentProvider
                 values[i] = combinedUriString("uifolder", idString);
             } else if (column.equals(UIProvider.FolderColumns.NAME)) {
                 // default empty string since all of these should use resource strings
-                values[i] = getFolderDisplayName(getFolderTypeFromMailboxType(mailboxType), "");
+                values[i] = getFolderDisplayName(
+                        getFolderTypeFromMailboxType(mailboxType), "", false);
             } else if (column.equals(UIProvider.FolderColumns.HAS_CHILDREN)) {
                 values[i] = 0;
             } else if (column.equals(UIProvider.FolderColumns.CAPABILITIES)) {
@@ -4363,7 +4439,7 @@ public class EmailProvider extends ContentProvider
      */
     private Cursor getUiFolderCursorRowFromMailboxCursorRow(
             MatrixCursor mc, int projectionLength, Cursor mailboxCursor,
-            int nameColumn, int typeColumn) {
+            int nameColumn, int typeColumn, int parentUriColumn) {
         final MatrixCursor.RowBuilder builder = mc.newRow();
         for (int i = 0; i < projectionLength; i++) {
             // If we are at the name column, get the type
@@ -4375,7 +4451,9 @@ public class EmailProvider extends ContentProvider
                 // type has also been requested. If not, this will
                 // error in unknown ways.
                 final int type = mailboxCursor.getInt(typeColumn);
-                builder.add(getFolderDisplayName(type, mailboxCursor.getString(i)));
+                final boolean rootFolder = parentUriColumn == -1 ||
+                        TextUtils.isEmpty(mailboxCursor.getString(parentUriColumn));
+                builder.add(getFolderDisplayName(type, mailboxCursor.getString(i), rootFolder));
             } else {
                 builder.add(mailboxCursor.getString(i));
             }
@@ -4411,6 +4489,7 @@ public class EmailProvider extends ContentProvider
         final int idColumn = inputCursor.getColumnIndex(BaseColumns._ID);
         final int typeColumn = inputCursor.getColumnIndex(UIProvider.FolderColumns.TYPE);
         final int nameColumn = inputCursor.getColumnIndex(UIProvider.FolderColumns.NAME);
+        final int parentUriColumn = inputCursor.getColumnIndex(UIProvider.FolderColumns.PARENT_URI);
         final int capabilitiesColumn =
                 inputCursor.getColumnIndex(UIProvider.FolderColumns.CAPABILITIES);
         final int persistentIdColumn =
@@ -4428,6 +4507,7 @@ public class EmailProvider extends ContentProvider
         while (inputCursor.moveToNext()) {
             final MatrixCursor.RowBuilder builder = outputCursor.newRow();
             final int folderType = inputCursor.getInt(typeColumn);
+            final boolean rootFolder = TextUtils.isEmpty(inputCursor.getString(parentUriColumn));
             for (int i = 0; i < uiProjection.length; i++) {
                 // Find the index in the input cursor corresponding the column requested in the
                 // output projection.
@@ -4442,7 +4522,7 @@ public class EmailProvider extends ContentProvider
                 final boolean remapped;
                 if (nameColumn == index) {
                     // Remap folder name for system folders.
-                    builder.add(getFolderDisplayName(folderType, value));
+                    builder.add(getFolderDisplayName(folderType, value, rootFolder));
                     remapped = true;
                 } else if (capabilitiesColumn == index) {
                     // Get the correct capabilities for this folder.
@@ -4492,9 +4572,15 @@ public class EmailProvider extends ContentProvider
      * @param folderType {@link UIProvider.FolderType} value for the folder
      * @param defaultName a {@link String} to use in case the {@link UIProvider.FolderType}
      *                    provided is not a system folder.
+     * @param rootFolder whether the folder is a root folder
      * @return a {@link String} to use as the display name for the folder
      */
-    private String getFolderDisplayName(int folderType, String defaultName) {
+    private String getFolderDisplayName(int folderType, String defaultName, boolean rootFolder) {
+        if (!rootFolder && !TextUtils.isEmpty(defaultName)) {
+            // If the folder is not a root, we must use the provided folder name
+            return defaultName;
+        }
+
         final int resId;
         switch (folderType) {
             case UIProvider.FolderType.INBOX:
@@ -4749,12 +4835,15 @@ public class EmailProvider extends ContentProvider
                     final List<String> projectionList = Arrays.asList(uiProjection);
                     final int nameColumn = projectionList.indexOf(UIProvider.FolderColumns.NAME);
                     final int typeColumn = projectionList.indexOf(UIProvider.FolderColumns.TYPE);
+                    final int parentUriColumn =
+                            projectionList.indexOf(UIProvider.FolderColumns.PARENT_URI);
                     if (c.moveToFirst()) {
                         final Cursor closeThis = c;
                         try {
                             c = getUiFolderCursorRowFromMailboxCursorRow(
                                     new MatrixCursorWithCachedColumns(uiProjection),
-                                    uiProjection.length, c, nameColumn, typeColumn);
+                                    uiProjection.length, c, nameColumn,
+                                    typeColumn, parentUriColumn);
                         } finally {
                             closeThis.close();
                         }
@@ -5841,7 +5930,7 @@ public class EmailProvider extends ContentProvider
         extras.putString(EmailServiceStatus.SYNC_EXTRAS_CALLBACK_METHOD,
                 SYNC_STATUS_CALLBACK_METHOD);
         ContentResolver.requestSync(account, EmailContent.AUTHORITY, extras);
-        LogUtils.i(TAG, "requestSync EmailProvider startSync %s, %s", account.toString(),
+        LogUtils.i(TAG, "requestSync EmailProvider restartPush %s, %s", account.toString(),
                 extras.toString());
     }
 
@@ -5950,10 +6039,26 @@ public class EmailProvider extends ContentProvider
     private Cursor uiSearch(Uri uri, String[] projection) {
         LogUtils.d(TAG, "runSearchQuery in search %s", uri);
         final long accountId = Long.parseLong(uri.getLastPathSegment());
+        long folderId = -1;
 
-        // TODO: Check the actual mailbox
-        Mailbox inbox = Mailbox.restoreMailboxOfType(getContext(), accountId, Mailbox.TYPE_INBOX);
-        if (inbox == null) {
+        try {
+            String folderIdString = uri.getQueryParameter(
+                    UIProvider.SearchQueryParameters.FOLDER_ID);
+            if (folderIdString != null) {
+                folderId = Long.valueOf(folderIdString);
+            }
+        } catch (NumberFormatException e) {
+            // ignore and keep -1
+        }
+
+        Mailbox folder = null;
+        if (folderId >= 0) {
+            folder = Mailbox.restoreMailboxWithId(getContext(), folderId);
+        }
+        if (folder == null) {
+            folder = Mailbox.restoreMailboxOfType(getContext(), accountId, Mailbox.TYPE_INBOX);
+        }
+        if (folder == null) {
             LogUtils.w(Logging.LOG_TAG, "In uiSearch, inbox doesn't exist for account "
                     + accountId);
 
@@ -5969,7 +6074,7 @@ public class EmailProvider extends ContentProvider
         Mailbox searchMailbox = getSearchMailbox(accountId);
         final long searchMailboxId = searchMailbox.mId;
 
-        mSearchParams = new SearchParams(inbox.mId, filter, searchMailboxId);
+        mSearchParams = new SearchParams(folder.mId, filter, searchMailboxId);
 
         final Context context = getContext();
         if (mSearchParams.mOffset == 0) {
