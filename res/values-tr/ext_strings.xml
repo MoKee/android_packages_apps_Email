@@ -28,5 +28,5 @@
     <!-- Name for preference entry which leads to the per-folder notification settings activity -->
     <string name="folder_notify_settings_pref_title">Klasör bildirim ayarları</string>
     <string name="battery_optimization_notification_title">Arkaplan kullanımı gerekli</string>
-    <string name="battery_optimization_notification_imap_text">IMAP push bildirimleri için, E-posta uygulamasının arkaplanda çalışması gerekir.\nArkaplan kullanımına izin vermek için buraya tıklayın.</string>
+    <string name="battery_optimization_notification_imap_text">IMAP push bildirimleri için, E-posta uygulaması arkaplanda çalışması gerekir.\nArkaplan kullanımına izin vermek için buraya tıklayın.</string>
 </resources>

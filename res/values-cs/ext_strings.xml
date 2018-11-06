@@ -18,7 +18,7 @@
 <resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
     <!-- Delete account -->
     <string name="delete_account">Smazat účet</string>
-    <string name="delete_account_confirmation_msg">Tímto odstraníte všechna nastavení a emaily z účtu „<xliff:g id="account">%s</xliff:g>“. Tuto operaci nelze vzít zpět.\n\nPokračovat?</string>
+    <string name="delete_account_confirmation_msg">Tímto bude odstraněno veškeré nastavení a všechny emaily účtu „<xliff:g id="account">%s</xliff:g>“. Tato operace nelze vzít zpět.\n\nPokračovat?</string>
     <string name="deleting_account_msg">Mazání účtu\u2026</string>
     <string name="delete_account_failed">Účet nelze smazat</string>
     <!-- Mailbox notification settings activity title [CHAR LIMIT=none] -->

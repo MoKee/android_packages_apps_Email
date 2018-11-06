@@ -28,4 +28,5 @@
     <!-- Name for preference entry which leads to the per-folder notification settings activity -->
     <string name="folder_notify_settings_pref_title">Pengaturan pemberitahuan folder</string>
     <string name="battery_optimization_notification_title">Penggunaan latar belakang diperlukan</string>
+    <string name="battery_optimization_notification_imap_text">Untuk notifikasi push IMAP, aplikasi Email perlu dijalankan di latar belakang.\nSentuh di sini untuk memungkinkan penggunaan latar belakang.</string>
 </resources>

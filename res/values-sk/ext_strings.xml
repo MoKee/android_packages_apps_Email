@@ -24,7 +24,7 @@
     <!-- Mailbox notification settings activity title [CHAR LIMIT=none] -->
     <string name="mailbox_notify_settings_activity_title">Možnosti oznámenia</string>
     <!-- Mailbox settings activity title, with the target folder name [CHAR LIMIT=none] -->
-    <string name="mailbox_notify_settings_activity_title_with_mailbox">Možnosti oznámení (<xliff:g id="mailbox_name" example="Family">%s</xliff:g>)</string>
+    <string name="mailbox_notify_settings_activity_title_with_mailbox">Možnosti oznámenia (<xliff:g id="mailbox_name" example="Family">%s</xliff:g>)</string>
     <!-- Name for preference entry which leads to the per-folder notification settings activity -->
     <string name="folder_notify_settings_pref_title">Nastavenia oznámení priečinkov</string>
     <string name="battery_optimization_notification_title">Vyžaduje režim na pozadí</string>
