@@ -24,4 +24,6 @@
     <string name="mailbox_notify_settings_activity_title">Опције обавештења</string>
     <string name="mailbox_notify_settings_activity_title_with_mailbox">Опције обавештења (<xliff:g id="mailbox_name" example="Family">%s</xliff:g>)</string>
     <string name="folder_notify_settings_pref_title">Фолдер опција обавештења</string>
+    <string name="battery_optimization_notification_title">Захтева се употреба у позадини</string>
+    <string name="battery_optimization_notification_imap_text">За примање IMAP обавештења, апликација е-поште мора да ради у позадини.\nПритисните овде да дозволите употребу у позадини.</string>
 </resources>
