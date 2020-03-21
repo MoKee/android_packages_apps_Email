@@ -22,4 +22,6 @@
     <string name="mailbox_notify_settings_activity_title">Параметри сповіщень</string>
     <string name="mailbox_notify_settings_activity_title_with_mailbox">Параметри сповіщень (<xliff:g id="mailbox_name" example="Family">%s </xliff:g>)</string>
     <string name="folder_notify_settings_pref_title">Налаштування сповіщень для папки</string>
+    <string name="battery_optimization_notification_title">Необхідне використання фонового режиму</string>
+    <string name="battery_optimization_notification_imap_text">Для отримання push-повідомлень IMAP додаток електронної пошти має працювати у фоновому режимі\пНатисніть тут, щоб дозволити роботу у фоновому режимі.</string>
 </resources>
