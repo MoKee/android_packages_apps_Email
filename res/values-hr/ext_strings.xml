@@ -23,4 +23,6 @@
     <string name="mailbox_notify_settings_activity_title">Opcije obavijesti</string>
     <string name="mailbox_notify_settings_activity_title_with_mailbox">Opcije obavijesti (<xliff:g id="mailbox_name" example="Family">%s</xliff:g>)</string>
     <string name="folder_notify_settings_pref_title">Postavke obavijesti mape</string>
+    <string name="battery_optimization_notification_title">Potrebno je korištenje u pozadini</string>
+    <string name="battery_optimization_notification_imap_text">Za IMAP push obavijesti, aplikacija E-pošta treba biti pokrenuta u pozadini.\nDodirnite ovdje kako biste omogućili korištenje u pozadini.</string>
 </resources>
